@@ -86,7 +86,10 @@ class MunicipalityService:
 
     @staticmethod
     async def get_municipalities_by_state_code(state_code: str) -> List[Municipality]:
-        """Get municipalities by state code"""
+        """Get municipalities by state code (optimized with state_id index)"""
+        municipality_logger.debug(f"Fetching municipalities for state: {state_code}")
+        
+        # Optimized query that uses the ix_municipalities_state_id index
         query = """
             SELECT m.id, m.name, m.type, m.state_id 
             FROM municipalities m
@@ -95,6 +98,53 @@ class MunicipalityService:
             ORDER BY m.name
         """
         rows = await database.fetch_all(query=query, values={"state_code": state_code.upper()})
+        municipality_logger.debug(f"Found {len(rows)} municipalities in state {state_code}")
+        return [Municipality.model_validate(dict(row)) for row in rows]
+
+    @staticmethod
+    async def get_municipalities_by_state_id(state_id: int) -> List[Municipality]:
+        """Get municipalities by state ID (optimized with state_id index)"""
+        municipality_logger.debug(f"Fetching municipalities for state_id: {state_id}")
+        
+        # This query will directly use the ix_municipalities_state_id index
+        query = """
+            SELECT id, name, type, state_id 
+            FROM municipalities
+            WHERE state_id = :state_id
+            ORDER BY name
+        """
+        rows = await database.fetch_all(query=query, values={"state_id": state_id})
+        municipality_logger.debug(f"Found {len(rows)} municipalities for state_id {state_id}")
+        return [Municipality.model_validate(dict(row)) for row in rows]
+
+    @staticmethod
+    async def search_municipalities_by_name(name_query: str, limit: int = 20) -> List[Municipality]:
+        """Search municipalities by name (optimized with name index)"""
+        municipality_logger.debug(f"Searching municipalities with name: {name_query}")
+        
+        # This query will use the ix_municipalities_name index for prefix searches
+        query = """
+            SELECT id, name, type, state_id 
+            FROM municipalities
+            WHERE name ILIKE :prefix_term
+               OR name ILIKE :contains_term
+            ORDER BY 
+                CASE WHEN name ILIKE :prefix_term THEN 1 ELSE 2 END,
+                name
+            LIMIT :limit
+        """
+        prefix_term = f"{name_query}%"    # Prefix search can use index
+        contains_term = f"%{name_query}%" # Fallback for substring search
+        
+        rows = await database.fetch_all(
+            query=query, 
+            values={
+                "prefix_term": prefix_term,
+                "contains_term": contains_term,
+                "limit": limit
+            }
+        )
+        municipality_logger.debug(f"Found {len(rows)} municipalities matching '{name_query}'")
         return [Municipality.model_validate(dict(row)) for row in rows]
 
     @staticmethod
@@ -158,20 +208,95 @@ class AddressService:
 
     @staticmethod
     async def search_addresses(search_query: str, limit: int = 10) -> List[str]:
-        """Search addresses by query string"""
+        """Search addresses by query string (optimized with indexes)"""
+        address_logger.debug(f"Searching addresses with query: {search_query}")
+        
+        # Optimized query that can use the street_address index for prefix searches
         query = """
             SELECT full_address 
             FROM addresses 
-            WHERE LOWER(full_address) LIKE LOWER(:search_term)
-            ORDER BY full_address
+            WHERE street_address ILIKE :prefix_term
+               OR LOWER(full_address) LIKE LOWER(:full_term)
+            ORDER BY 
+                CASE WHEN street_address ILIKE :prefix_term THEN 1 ELSE 2 END,
+                full_address
             LIMIT :limit
         """
-        search_term = f"%{search_query}%"
+        prefix_term = f"{search_query}%"  # Prefix search can use index
+        full_term = f"%{search_query}%"   # Fallback for other searches
+        
         rows = await database.fetch_all(
             query=query, 
-            values={"search_term": search_term, "limit": limit}
+            values={
+                "prefix_term": prefix_term, 
+                "full_term": full_term, 
+                "limit": limit
+            }
         )
+        address_logger.debug(f"Found {len(rows)} matching addresses")
         return [row["full_address"] for row in rows]
+
+    @staticmethod
+    async def search_addresses_by_city(city: str, limit: int = 10) -> List[Address]:
+        """Search addresses by city (optimized with city index)"""
+        address_logger.debug(f"Searching addresses in city: {city}")
+        
+        # This query will use the ix_addresses_city index for fast city lookups
+        query = """
+            SELECT id, street_address, city, state_code, full_address
+            FROM addresses 
+            WHERE LOWER(city) = LOWER(:city)
+            ORDER BY street_address
+            LIMIT :limit
+        """
+        rows = await database.fetch_all(query=query, values={"city": city, "limit": limit})
+        address_logger.debug(f"Found {len(rows)} addresses in {city}")
+        return [Address.model_validate(dict(row)) for row in rows]
+
+    @staticmethod
+    async def search_addresses_by_state(state_code: str, limit: int = 50) -> List[Address]:
+        """Search addresses by state code (optimized with state_code index)"""
+        address_logger.debug(f"Searching addresses in state: {state_code}")
+        
+        # This query will use the ix_addresses_state_code index for fast state lookups
+        query = """
+            SELECT id, street_address, city, state_code, full_address
+            FROM addresses 
+            WHERE state_code = UPPER(:state_code)
+            ORDER BY city, street_address
+            LIMIT :limit
+        """
+        rows = await database.fetch_all(
+            query=query, 
+            values={"state_code": state_code, "limit": limit}
+        )
+        address_logger.debug(f"Found {len(rows)} addresses in state {state_code}")
+        return [Address.model_validate(dict(row)) for row in rows]
+
+    @staticmethod
+    async def search_addresses_by_city_and_state(
+        city: str, 
+        state_code: str, 
+        limit: int = 20
+    ) -> List[Address]:
+        """Search addresses by city and state (optimized with composite index)"""
+        address_logger.debug(f"Searching addresses in {city}, {state_code}")
+        
+        # This query will use the ix_addresses_city_state composite index
+        query = """
+            SELECT id, street_address, city, state_code, full_address
+            FROM addresses 
+            WHERE LOWER(city) = LOWER(:city) 
+              AND state_code = UPPER(:state_code)
+            ORDER BY street_address
+            LIMIT :limit
+        """
+        rows = await database.fetch_all(
+            query=query, 
+            values={"city": city, "state_code": state_code, "limit": limit}
+        )
+        address_logger.debug(f"Found {len(rows)} addresses in {city}, {state_code}")
+        return [Address.model_validate(dict(row)) for row in rows]
 
     @staticmethod
     async def get_all_addresses() -> List[Address]:
