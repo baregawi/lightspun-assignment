@@ -9,17 +9,17 @@ from pathlib import Path
 # Add the lightspun package to the path
 sys.path.append(str(Path(__file__).parent))
 
-from lightspun.services import parse_street_address
+from lightspun.core.address_processing import AddressParser
 
 def test_address_parsing():
     """Test the address parsing function with various examples"""
     
     test_cases = [
-        # Basic cases
-        ("1070 Pierce Pl", ("1070", "Pierce Pl", None)),
-        ("1077 Roosevelt Ct", ("1077", "Roosevelt Ct", None)),
-        ("1201 East Dr", ("1201", "East Dr", None)),
-        ("148 West Rd", ("148", "West Rd", None)),
+        # Basic cases (expects standardized street types)
+        ("1070 Pierce Pl", ("1070", "Pierce Place", None)),
+        ("1077 Roosevelt Ct", ("1077", "Roosevelt Court", None)),
+        ("1201 East Dr", ("1201", "East Drive", None)),
+        ("148 West Rd", ("148", "West Road", None)),
         
         # Cases with apartment/unit
         ("123 Main Street Apt 2B", ("123", "Main Street", "Apt 2B")),
@@ -27,9 +27,9 @@ def test_address_parsing():
         ("789 First Street Unit 5", ("789", "First Street", "Unit 5")),
         ("1000 Broadway #205", ("1000", "Broadway", "# 205")),
         
-        # Cases with different formats
-        ("42A Lincoln Blvd", ("42A", "Lincoln Blvd", None)),
-        ("5555 Central Park Ave", ("5555", "Central Park Ave", None)),
+        # Cases with different formats (expects standardized street types)
+        ("42A Lincoln Blvd", ("42A", "Lincoln Boulevard", None)),
+        ("5555 Central Park Ave", ("5555", "Central Park Avenue", None)),
         
         # Edge cases
         ("Main Street", (None, "Main Street", None)),  # No number
@@ -43,7 +43,8 @@ def test_address_parsing():
     all_passed = True
     
     for i, (input_addr, expected) in enumerate(test_cases, 1):
-        result = parse_street_address(input_addr)
+        address_components = AddressParser.parse_street_address(input_addr)
+        result = (address_components.street_number, address_components.street_name, address_components.unit)
         passed = result == expected
         all_passed = all_passed and passed
         

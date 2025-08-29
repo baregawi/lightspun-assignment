@@ -18,7 +18,7 @@ from pathlib import Path
 # Add the lightspun package to the path
 sys.path.append(str(Path(__file__).parent))
 
-from lightspun.street_standardization import (
+from lightspun.utils.street_standardization import (
     standardize_street_type,
     get_street_type_statistics,
     rebuild_street_address,

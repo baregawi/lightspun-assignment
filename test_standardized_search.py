@@ -11,7 +11,7 @@ from pathlib import Path
 # Add the lightspun package to the path
 sys.path.append(str(Path(__file__).parent))
 
-from lightspun.street_standardization import standardize_street_type
+from lightspun.utils.street_standardization import standardize_street_type
 
 async def test_standardized_search():
     """Test address search with various street type formats"""
