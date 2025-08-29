@@ -206,3 +206,8 @@ marimo/_static/
 marimo/_lsp/
 __marimo__/
 .env
+
+
+# Node and NVM and NPM
+frontend/node_modules/
+frontend/package-lock.json

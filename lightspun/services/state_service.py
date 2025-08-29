@@ -1,13 +1,13 @@
 """
 State Service Module
 
-This module handles all state-related business logic and database operations.
+This module handles all state-related business logic and db.database operations.
 Provides CRUD operations and specialized queries for states.
 """
 
 from typing import List, Optional
 
-from ..database import database
+from .. import database as db
 from ..schemas import State, StateCreate, StateUpdate
 from ..logging_config import get_logger
 from ..utils.database_operations import DatabaseOperations
@@ -22,12 +22,12 @@ class StateService:
     @staticmethod
     async def get_all_states() -> List[State]:
         """Get all states"""
-        state_logger.debug("Fetching all states from database")
+        state_logger.debug("Fetching all states from db.database")
         
         query = "SELECT id, code, name FROM states ORDER BY name"
-        rows = await database.fetch_all(query=query)
+        rows = await db.database.fetch_all(query=query)
         
-        state_logger.debug(f"Retrieved {len(rows)} states from database")
+        state_logger.debug(f"Retrieved {len(rows)} states from db.database")
         return [State.model_validate(dict(row)) for row in rows]
 
     @staticmethod
@@ -36,7 +36,7 @@ class StateService:
         state_logger.debug(f"Fetching state by code: {state_code}")
         
         query = "SELECT id, code, name FROM states WHERE code = :code"
-        row = await database.fetch_one(query=query, values={"code": state_code.upper()})
+        row = await db.database.fetch_one(query=query, values={"code": state_code.upper()})
         
         if row:
             state_logger.debug(f"Found state: {row['name']} ({row['code']})")
@@ -116,7 +116,7 @@ class StateService:
             return False
         
         # Check for dependent municipalities
-        municipality_count = await database.fetch_val(
+        municipality_count = await db.database.fetch_val(
             query="SELECT COUNT(*) FROM municipalities WHERE state_id = :state_id",
             values={"state_id": state_id}
         )
@@ -147,7 +147,7 @@ class StateService:
             ORDER BY s.name
         """
         
-        rows = await database.fetch_all(query=query)
+        rows = await db.database.fetch_all(query=query)
         
         results = []
         for row in rows:
@@ -177,7 +177,7 @@ class StateService:
         code_pattern = f"%{name_query}%"
         exact_name = name_query.lower()
         
-        rows = await database.fetch_all(
+        rows = await db.database.fetch_all(
             query=query,
             values={
                 "name_pattern": name_pattern,

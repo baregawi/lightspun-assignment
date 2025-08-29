@@ -1,13 +1,13 @@
 """
 Address Service Module
 
-This module handles all address-related business logic and database operations.
+This module handles all address-related business logic and db.database operations.
 Provides CRUD operations, fuzzy search, and address validation/parsing.
 """
 
 from typing import List, Optional
 
-from ..database import database
+from .. import database as db
 from ..schemas import Address, AddressCreate, AddressUpdate, AddressCreateMinimal
 from ..logging_config import get_logger
 from ..utils.database_operations import DatabaseOperations
@@ -53,7 +53,7 @@ class AddressService:
             ORDER BY street_name, street_number
             LIMIT :limit
         """
-        rows = await database.fetch_all(query=query, values={"city": city, "limit": limit})
+        rows = await db.database.fetch_all(query=query, values={"city": city, "limit": limit})
         address_logger.debug(f"Found {len(rows)} addresses in {city}")
         return [Address.model_validate(dict(row)) for row in rows]
 
@@ -70,7 +70,7 @@ class AddressService:
             ORDER BY city, street_name, street_number
             LIMIT :limit
         """
-        rows = await database.fetch_all(
+        rows = await db.database.fetch_all(
             query=query, 
             values={"state_code": state_code.upper(), "limit": limit}
         )
@@ -270,7 +270,7 @@ class AddressService:
             ORDER BY city, street_number
             LIMIT :limit
         """
-        rows = await database.fetch_all(
+        rows = await db.database.fetch_all(
             query=query, 
             values={"street_name": f"%{standardized_street_name}%", "limit": limit}
         )
@@ -290,7 +290,7 @@ class AddressService:
             ORDER BY city, street_name
             LIMIT :limit
         """
-        rows = await database.fetch_all(
+        rows = await db.database.fetch_all(
             query=query, 
             values={"street_number": street_number, "limit": limit}
         )
@@ -322,17 +322,19 @@ class AddressService:
         return results
 
     @staticmethod
-    async def autocomplete_addresses(search_query: str, limit: int = 10, use_fuzzy: bool = True) -> List[str]:
+    async def autocomplete_addresses(search_query: str, limit: int = 10, use_fuzzy: bool = True, state_code: Optional[str] = None, city: Optional[str] = None) -> List[str]:
         """
-        Enhanced address autocomplete with optional fuzzy search.
+        Enhanced address autocomplete with optional fuzzy search and location filtering.
         
         Args:
             search_query: Partial address to search for
             limit: Maximum number of suggestions
             use_fuzzy: Whether to include fuzzy matching for typos
+            state_code: Optional state code filter (e.g., 'CA', 'NY')
+            city: Optional city filter
             
         Returns:
-            List of matching address suggestions
+            List of matching address suggestions filtered by location if provided
         """
         address_logger.debug(f"Autocompleting addresses for: {search_query}, fuzzy: {use_fuzzy}")
         
@@ -343,38 +345,48 @@ class AddressService:
             # Use the new fuzzy search engine
             config = FuzzySearchConfig(limit=limit)
             fuzzy_searcher = AddressFuzzySearch(config)
-            return await fuzzy_searcher.autocomplete(search_query, limit)
+            return await fuzzy_searcher.autocomplete(search_query, limit, state_code=state_code, city=city)
         else:
             # Use traditional exact/prefix matching (faster)
             search_query = search_query.strip()
             standardized_query = standardize_street_type(search_query)
             
-            query = """
-                SELECT DISTINCT full_address
-                FROM addresses 
-                WHERE street_address ILIKE :prefix_term
-                   OR street_address ILIKE :std_prefix_term
-                   OR LOWER(full_address) LIKE LOWER(:contains_term)
-                   OR LOWER(full_address) LIKE LOWER(:std_contains_term)
-                ORDER BY 
+            # Build WHERE clauses for location filtering
+            where_conditions = [
+                "(street_address ILIKE :prefix_term OR street_address ILIKE :std_prefix_term OR LOWER(full_address) LIKE LOWER(:contains_term) OR LOWER(full_address) LIKE LOWER(:std_contains_term))"
+            ]
+            values = {
+                "prefix_term": f"{search_query}%",
+                "std_prefix_term": f"{standardized_query}%", 
+                "contains_term": f"%{search_query}%",
+                "std_contains_term": f"%{standardized_query}%",
+                "limit": limit
+            }
+            
+            if state_code:
+                where_conditions.append("state_code = :state_code")
+                values["state_code"] = state_code.upper()
+                
+            if city:
+                where_conditions.append("LOWER(city) = LOWER(:city)")
+                values["city"] = city
+            
+            query = f"""
+                SELECT DISTINCT full_address,
                     CASE 
                         WHEN street_address ILIKE :prefix_term THEN 1 
                         WHEN street_address ILIKE :std_prefix_term THEN 2
                         ELSE 3 
-                    END,
-                    full_address
+                    END as priority
+                FROM addresses 
+                WHERE {' AND '.join(where_conditions)}
+                ORDER BY priority, full_address
                 LIMIT :limit
             """
             
-            rows = await database.fetch_all(
+            rows = await db.database.fetch_all(
                 query=query,
-                values={
-                    "prefix_term": f"{search_query}%",
-                    "std_prefix_term": f"{standardized_query}%",
-                    "contains_term": f"%{search_query}%",
-                    "std_contains_term": f"%{standardized_query}%",
-                    "limit": limit
-                }
+                values=values
             )
             
             address_logger.debug(f"Found {len(rows)} exact matches for '{search_query}'")
@@ -413,7 +425,7 @@ class AddressService:
         total_count = await DatabaseOperations.count("addresses")
         
         # Get count by state
-        state_stats = await database.fetch_all("""
+        state_stats = await db.database.fetch_all("""
             SELECT state_code, COUNT(*) as address_count
             FROM addresses
             GROUP BY state_code
@@ -422,7 +434,7 @@ class AddressService:
         """)
         
         # Get count by city (top 10)
-        city_stats = await database.fetch_all("""
+        city_stats = await db.database.fetch_all("""
             SELECT city, state_code, COUNT(*) as address_count
             FROM addresses
             GROUP BY city, state_code
@@ -431,7 +443,7 @@ class AddressService:
         """)
         
         # Get most common street names
-        street_stats = await database.fetch_all("""
+        street_stats = await db.database.fetch_all("""
             SELECT street_name, COUNT(*) as address_count
             FROM addresses
             WHERE street_name IS NOT NULL
@@ -526,25 +538,27 @@ class AddressService:
         
         base_query += " ORDER BY city, street_name, street_number LIMIT :limit"
         
-        rows = await database.fetch_all(query=base_query, values=parameters)
+        rows = await db.database.fetch_all(query=base_query, values=parameters)
         
         results = [Address.model_validate(dict(row)) for row in rows]
         address_logger.debug(f"Advanced search found {len(results)} addresses")
         return results
 
     @staticmethod
-    async def search_addresses(query: str, limit: int = 10) -> List[str]:
+    async def search_addresses(query: str, limit: int = 10, state_code: Optional[str] = None, city: Optional[str] = None) -> List[str]:
         """
         Search addresses for autocomplete functionality.
         
         Args:
             query: Address search query
             limit: Maximum number of results
+            state_code: Optional state code filter (e.g., 'CA', 'NY')
+            city: Optional city filter
             
         Returns:
-            List of matching full addresses
+            List of matching full addresses filtered by state/city if provided
         """
-        return await AddressService.autocomplete_addresses(query, limit, use_fuzzy=True)
+        return await AddressService.autocomplete_addresses(query, limit, use_fuzzy=False, state_code=state_code, city=city)
 
     @staticmethod
     async def get_all_addresses(limit: int = 1000) -> List[Address]:

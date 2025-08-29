@@ -16,6 +16,19 @@ function AddressAutocomplete({
   disabled = false,
   step = 3 
 }) {
+  // Create a custom fetchSuggestions function that includes filtering by state/city
+  const fetchSuggestions = React.useCallback(async (query) => {
+    const stateCode = selectedState?.code || null;
+    const city = selectedMunicipality?.name || null;
+    
+    return await addressesApi.autocomplete(
+      query, 
+      API_DEFAULTS.AUTOCOMPLETE_LIMIT,
+      stateCode,
+      city
+    );
+  }, [selectedState, selectedMunicipality]);
+
   const {
     query,
     suggestions,
@@ -31,7 +44,7 @@ function AddressAutocomplete({
     handleKeyDown,
     setSelectedIndex,
   } = useAutocomplete({
-    fetchSuggestions: addressesApi.autocomplete,
+    fetchSuggestions: fetchSuggestions,
     debounceDelay: API_DEFAULTS.DEBOUNCE_DELAY,
     minQueryLength: API_DEFAULTS.AUTOCOMPLETE_MIN_LENGTH,
     onSelect: (suggestion) => {
@@ -55,16 +68,18 @@ function AddressAutocomplete({
   const getLabel = () => {
     if (selectedMunicipality && selectedState) {
       return `${FORM_LABELS.ADDRESS} in ${selectedMunicipality.name}, ${selectedState.code}`;
+    } else if (selectedState) {
+      return `${FORM_LABELS.ADDRESS} in ${selectedState.name}`;
     }
     return FORM_LABELS.ADDRESS;
   };
 
   const getHelpText = () => {
-    return 'Start typing to see address suggestions. Use arrow keys to navigate and Enter to select.';
+    return 'Type street names (Main, Oak, Pine) or words like Street, Way, Road. Use arrow keys to navigate and Enter to select.';
   };
 
-  // Don't render if no state and municipality are selected
-  if (!selectedState || !selectedMunicipality) {
+  // Don't render if no state is selected
+  if (!selectedState) {
     return null;
   }
 
@@ -72,7 +87,7 @@ function AddressAutocomplete({
     <div className="form-step">
       <StepIndicator 
         step={step} 
-        active={!!selectedState && !!selectedMunicipality && !value} 
+        active={!!selectedState && !value} 
         completed={!!value} 
       />
       
@@ -95,7 +110,7 @@ function AddressAutocomplete({
               onKeyDown={handleKeyDown}
               disabled={disabled}
               className="form-control"
-              placeholder="Start typing an address..."
+              placeholder="Try: Main, Oak, Street, etc..."
               required
               autoComplete="off"
             />

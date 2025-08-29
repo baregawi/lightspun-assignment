@@ -44,7 +44,11 @@ def test_address_parsing():
     
     for i, (input_addr, expected) in enumerate(test_cases, 1):
         address_components = AddressParser.parse_street_address(input_addr)
-        result = (address_components.street_number, address_components.street_name, address_components.unit)
+        # Handle both tuple and object returns
+        if isinstance(address_components, tuple):
+            result = address_components
+        else:
+            result = (address_components.street_number, address_components.street_name, address_components.unit)
         passed = result == expected
         all_passed = all_passed and passed
         

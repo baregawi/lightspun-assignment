@@ -1,4 +1,5 @@
-version: '3.8'
+# Docker Compose file for Lightspun Assignment
+# Note: version field is no longer required in modern Docker Compose
 
 services:
   postgres:

@@ -1,7 +1,7 @@
 from fastapi import FastAPI, HTTPException, Query, Path, Body, status, Request
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
-from typing import List, Dict
+from typing import List, Dict, Optional
 import time
 import uuid
 from .config import get_config
@@ -281,10 +281,12 @@ async def create_municipality(municipality_data: MunicipalityCreate):
          description="Search and autocomplete street addresses based on query string")
 async def autocomplete_address(
     q: str = Query(..., description="Address query string", min_length=2),
-    limit: int = Query(10, description="Maximum number of results", ge=1, le=50)
+    limit: int = Query(10, description="Maximum number of results", ge=1, le=50),
+    state_code: Optional[str] = Query(None, description="Filter by state code (e.g., 'CA', 'NY')", max_length=2),
+    city: Optional[str] = Query(None, description="Filter by city name")
 ):
-    """Autocomplete street addresses based on query string."""
-    addresses = await AddressService.search_addresses(q, limit)
+    """Autocomplete street addresses based on query string with optional state/city filtering."""
+    addresses = await AddressService.search_addresses(q, limit, state_code=state_code, city=city)
     
     return AddressAutocompleteResponse(
         addresses=addresses,

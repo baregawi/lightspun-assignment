@@ -1,18 +1,19 @@
 import asyncio
 from .config import get_config
-from .database import init_database, Base, engine, database
+from . import database as db
+from .database import init_database, Base
 from .models import State, Municipality, Address
 
-async def create_tables():
+def create_tables():
     """Create all database tables"""
-    if engine is None:
+    if db.engine is None:
         raise RuntimeError("Database engine not initialized")
-    Base.metadata.create_all(bind=engine)
+    Base.metadata.create_all(bind=db.engine)
     print("✅ Database tables created")
 
 async def populate_sample_data():
     """Populate database with sample data"""
-    await database.connect()
+    await db.database.connect()
     
     # Sample states data
     states_data = [
@@ -72,12 +73,12 @@ async def populate_sample_data():
     # Insert states
     for state_data in states_data:
         query = "INSERT INTO states (code, name) VALUES (:code, :name) ON CONFLICT (code) DO NOTHING"
-        await database.execute(query=query, values=state_data)
+        await db.database.execute(query=query, values=state_data)
     
     # Get state IDs for municipalities
-    ca_state = await database.fetch_one("SELECT id FROM states WHERE code = 'CA'")
-    ny_state = await database.fetch_one("SELECT id FROM states WHERE code = 'NY'")
-    tx_state = await database.fetch_one("SELECT id FROM states WHERE code = 'TX'")
+    ca_state = await db.database.fetch_one("SELECT id FROM states WHERE code = 'CA'")
+    ny_state = await db.database.fetch_one("SELECT id FROM states WHERE code = 'NY'")
+    tx_state = await db.database.fetch_one("SELECT id FROM states WHERE code = 'TX'")
     
     if ca_state and ny_state and tx_state:
         # Sample municipalities data
@@ -104,54 +105,70 @@ async def populate_sample_data():
             query = """INSERT INTO municipalities (name, type, state_id) 
                       VALUES (:name, :type, :state_id) 
                       ON CONFLICT DO NOTHING"""
-            await database.execute(query=query, values=muni_data)
+            await db.database.execute(query=query, values=muni_data)
     
-    # Sample addresses data
+    # Sample addresses data with parsed street components
     addresses_data = [
         {
             "street_address": "123 Main Street",
+            "street_number": "123",
+            "street_name": "Main Street", 
             "city": "Los Angeles",
             "state_code": "CA",
             "full_address": "123 Main Street, Los Angeles, CA"
         },
         {
             "street_address": "456 Oak Avenue",
+            "street_number": "456",
+            "street_name": "Oak Avenue",
             "city": "San Francisco",
             "state_code": "CA",
             "full_address": "456 Oak Avenue, San Francisco, CA"
         },
         {
             "street_address": "789 Pine Road",
+            "street_number": "789",
+            "street_name": "Pine Road",
             "city": "San Diego",
             "state_code": "CA",
             "full_address": "789 Pine Road, San Diego, CA"
         },
         {
             "street_address": "321 Elm Street",
+            "street_number": "321", 
+            "street_name": "Elm Street",
             "city": "New York",
             "state_code": "NY",
             "full_address": "321 Elm Street, New York, NY"
         },
         {
             "street_address": "654 Broadway",
+            "street_number": "654",
+            "street_name": "Broadway", 
             "city": "Buffalo",
             "state_code": "NY",
             "full_address": "654 Broadway, Buffalo, NY"
         },
         {
             "street_address": "987 Cedar Lane",
+            "street_number": "987",
+            "street_name": "Cedar Lane",
             "city": "Houston",
             "state_code": "TX",
             "full_address": "987 Cedar Lane, Houston, TX"
         },
         {
             "street_address": "147 Maple Drive",
+            "street_number": "147",
+            "street_name": "Maple Drive", 
             "city": "Dallas",
             "state_code": "TX",
             "full_address": "147 Maple Drive, Dallas, TX"
         },
         {
             "street_address": "258 Birch Way",
+            "street_number": "258",
+            "street_name": "Birch Way",
             "city": "Austin",
             "state_code": "TX",
             "full_address": "258 Birch Way, Austin, TX"
@@ -160,12 +177,12 @@ async def populate_sample_data():
     
     # Insert addresses
     for addr_data in addresses_data:
-        query = """INSERT INTO addresses (street_address, city, state_code, full_address) 
-                  VALUES (:street_address, :city, :state_code, :full_address)
+        query = """INSERT INTO addresses (street_address, street_number, street_name, city, state_code, full_address) 
+                  VALUES (:street_address, :street_number, :street_name, :city, :state_code, :full_address)
                   ON CONFLICT DO NOTHING"""
-        await database.execute(query=query, values=addr_data)
+        await db.database.execute(query=query, values=addr_data)
     
-    await database.disconnect()
+    await db.database.disconnect()
     print("✅ Sample data populated")
 
 async def init_database_with_data():
@@ -174,7 +191,7 @@ async def init_database_with_data():
     config = get_config()
     init_database(config)
     
-    await create_tables()
+    create_tables()
     await populate_sample_data()
 
 if __name__ == "__main__":

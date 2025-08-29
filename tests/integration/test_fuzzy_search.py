@@ -11,7 +11,7 @@ from pathlib import Path
 # Add the lightspun package to the path
 sys.path.append(str(Path(__file__).parent.parent.parent))
 
-from lightspun.street_standardization import standardize_street_type
+from lightspun.utils.street_standardization import standardize_street_type
 
 async def test_fuzzy_search_comprehensive():
     """Comprehensive test of fuzzy search capabilities"""

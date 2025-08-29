@@ -1,13 +1,13 @@
 """
 Municipality Service Module
 
-This module handles all municipality-related business logic and database operations.
+This module handles all municipality-related business logic and db.database operations.
 Provides CRUD operations and specialized queries for municipalities.
 """
 
 from typing import List, Optional
 
-from ..database import database
+from .. import database as db
 from ..schemas import Municipality, MunicipalityCreate, MunicipalityUpdate
 from ..logging_config import get_logger
 from ..utils.database_operations import DatabaseOperations
@@ -25,15 +25,20 @@ class MunicipalityService:
         municipality_logger.debug(f"Fetching municipalities for state: {state_code}")
         
         # Optimized query that uses the ix_municipalities_state_id index
+        # Use ROW_NUMBER to get unique municipalities by name per state
         query = """
             SELECT m.id, m.name, m.type, m.state_id 
-            FROM municipalities m
-            JOIN states s ON m.state_id = s.id
-            WHERE s.code = :state_code
+            FROM (
+                SELECT id, name, type, state_id,
+                       ROW_NUMBER() OVER (PARTITION BY name, state_id ORDER BY id) as rn
+                FROM municipalities
+                WHERE state_id = (SELECT id FROM states WHERE code = :state_code)
+            ) m
+            WHERE m.rn = 1
             ORDER BY m.name
         """
         
-        rows = await database.fetch_all(query=query, values={"state_code": state_code.upper()})
+        rows = await db.database.fetch_all(query=query, values={"state_code": state_code.upper()})
         municipality_logger.debug(f"Found {len(rows)} municipalities in state {state_code}")
         return [Municipality.model_validate(dict(row)) for row in rows]
 
@@ -50,7 +55,7 @@ class MunicipalityService:
             ORDER BY name
         """
         
-        rows = await database.fetch_all(query=query, values={"state_id": state_id})
+        rows = await db.database.fetch_all(query=query, values={"state_id": state_id})
         municipality_logger.debug(f"Found {len(rows)} municipalities for state_id {state_id}")
         return [Municipality.model_validate(dict(row)) for row in rows]
 
@@ -74,7 +79,7 @@ class MunicipalityService:
         prefix_term = f"{name_query}%"    # Prefix search can use index
         contains_term = f"%{name_query}%" # Fallback for substring search
         
-        rows = await database.fetch_all(
+        rows = await db.database.fetch_all(
             query=query, 
             values={
                 "prefix_term": prefix_term,
@@ -184,7 +189,7 @@ class MunicipalityService:
             LIMIT :limit
         """
         
-        rows = await database.fetch_all(
+        rows = await db.database.fetch_all(
             query=query, 
             values={"municipality_type": municipality_type, "limit": limit}
         )
@@ -201,7 +206,7 @@ class MunicipalityService:
         total_count = await DatabaseOperations.count("municipalities")
         
         # Get count by type
-        type_stats = await database.fetch_all("""
+        type_stats = await db.database.fetch_all("""
             SELECT type, COUNT(*) as count
             FROM municipalities
             GROUP BY type
@@ -209,7 +214,7 @@ class MunicipalityService:
         """)
         
         # Get count by state
-        state_stats = await database.fetch_all("""
+        state_stats = await db.database.fetch_all("""
             SELECT s.name as state_name, s.code as state_code, COUNT(m.id) as municipality_count
             FROM states s
             LEFT JOIN municipalities m ON s.id = m.state_id
@@ -275,7 +280,7 @@ class MunicipalityService:
         
         base_query += " ORDER BY m.name LIMIT :limit"
         
-        rows = await database.fetch_all(query=base_query, values=parameters)
+        rows = await db.database.fetch_all(query=base_query, values=parameters)
         
         results = [Municipality.model_validate(dict(row)) for row in rows]
         municipality_logger.debug(f"Advanced search found {len(results)} municipalities")

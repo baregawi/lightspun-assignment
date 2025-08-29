@@ -1,7 +1,7 @@
 """
 Database Operations Utilities Module
 
-This module provides common database operation utilities including:
+This module provides common db.database operation utilities including:
 - Query building helpers
 - Common CRUD operation patterns  
 - Transaction management utilities
@@ -14,7 +14,7 @@ This reduces code duplication across service classes.
 from typing import List, Dict, Any, Optional, Union, Tuple
 from contextlib import asynccontextmanager
 
-from ..database import database
+from .. import database as db
 from ..logging_config import get_logger
 
 # Initialize logger
@@ -124,7 +124,7 @@ class QueryBuilder:
 
 
 class DatabaseOperations:
-    """Common database operation patterns"""
+    """Common db.database operation patterns"""
     
     @staticmethod
     async def get_by_id(
@@ -151,7 +151,7 @@ class DatabaseOperations:
             where_conditions=[f"{id_field} = :{id_field}"]
         )
         
-        row = await database.fetch_one(query=query, values={id_field: id_value})
+        row = await db.database.fetch_one(query=query, values={id_field: id_value})
         return dict(row) if row else None
     
     @staticmethod
@@ -180,7 +180,7 @@ class DatabaseOperations:
             limit=limit
         )
         
-        rows = await database.fetch_all(query=query)
+        rows = await db.database.fetch_all(query=query)
         return [dict(row) for row in rows]
     
     @staticmethod
@@ -204,10 +204,10 @@ class DatabaseOperations:
         query, _ = QueryBuilder.build_insert(table, fields, returning)
         
         if returning:
-            row = await database.fetch_one(query=query, values=data)
+            row = await db.database.fetch_one(query=query, values=data)
             return dict(row) if row else None
         else:
-            await database.execute(query=query, values=data)
+            await db.database.execute(query=query, values=data)
             return None
     
     @staticmethod
@@ -237,10 +237,10 @@ class DatabaseOperations:
         values = {**data, id_field: id_value}
         
         if returning:
-            row = await database.fetch_one(query=query, values=values)
+            row = await db.database.fetch_one(query=query, values=values)
             return dict(row) if row else None
         else:
-            result = await database.execute(query=query, values=values)
+            result = await db.database.execute(query=query, values=values)
             return {"rows_affected": result}
     
     @staticmethod
@@ -261,7 +261,7 @@ class DatabaseOperations:
             True if record was deleted, False otherwise
         """
         query = f"DELETE FROM {table} WHERE {id_field} = :{id_field}"
-        result = await database.execute(query=query, values={id_field: id_value})
+        result = await db.database.execute(query=query, values={id_field: id_value})
         return result > 0
     
     @staticmethod
@@ -287,7 +287,7 @@ class DatabaseOperations:
             query += f" WHERE {' AND '.join(where_conditions)}"
         
         params = parameters or {}
-        result = await database.fetch_val(query=query, values=params)
+        result = await db.database.fetch_val(query=query, values=params)
         return result or 0
     
     @staticmethod
@@ -318,14 +318,14 @@ class TransactionManager:
     @asynccontextmanager
     async def transaction():
         """
-        Context manager for database transactions.
+        Context manager for db.database transactions.
         
         Usage:
             async with TransactionManager.transaction():
                 # Database operations here
                 # Will be committed automatically or rolled back on exception
         """
-        transaction = await database.transaction()
+        transaction = await db.database.transaction()
         try:
             yield transaction
         except Exception:
@@ -386,7 +386,7 @@ class PaginationHelper:
             offset=offset
         )
         
-        rows = await database.fetch_all(query=query, values=parameters or {})
+        rows = await db.database.fetch_all(query=query, values=parameters or {})
         records = [dict(row) for row in rows]
         
         # Calculate pagination metadata

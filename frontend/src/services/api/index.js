@@ -2,6 +2,11 @@
  * API Services module - Centralized API service layer
  */
 
+// Import APIs for backward compatibility functions
+import { statesApi } from './states';
+import { municipalitiesApi } from './municipalities';
+import { addressesApi } from './addresses';
+
 export { default as apiClient } from './client';
 export { statesApi } from './states';
 export { municipalitiesApi } from './municipalities';

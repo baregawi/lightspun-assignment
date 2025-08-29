@@ -9,7 +9,7 @@ export const addressesApi = {
   /**
    * Get address autocomplete suggestions
    */
-  async autocomplete(query, limit = API_DEFAULTS.AUTOCOMPLETE_LIMIT) {
+  async autocomplete(query, limit = API_DEFAULTS.AUTOCOMPLETE_LIMIT, stateCode = null, city = null) {
     if (!query || query.length < API_DEFAULTS.AUTOCOMPLETE_MIN_LENGTH) {
       return [];
     }
@@ -17,6 +17,8 @@ export const addressesApi = {
     const params = createQueryString({
       q: query,
       limit: limit,
+      state_code: stateCode,
+      city: city,
     });
 
     const response = await apiClient.get(`${API_ENDPOINTS.ADDRESSES_AUTOCOMPLETE}?${params}`);

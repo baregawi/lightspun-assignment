@@ -16,7 +16,7 @@ from typing import List, Dict, Any, Optional, Tuple
 from dataclasses import dataclass
 from enum import Enum
 
-from ..database import database
+from .. import database as db
 from ..logging_config import get_logger
 from ..utils.street_standardization import standardize_street_type
 
@@ -104,7 +104,7 @@ class FuzzySearchEngine:
             LIMIT ${len(params) - 1}
         """
         
-        rows = await database.fetch_all(query=query, values=params)
+        rows = await db.database.fetch_all(query=query, values=params)
         fuzzy_logger.debug(f"Found {len(rows)} trigram matches")
         
         return [dict(row) for row in rows]
@@ -150,7 +150,7 @@ class FuzzySearchEngine:
             LIMIT $2
         """
         
-        rows = await database.fetch_all(query=query, values=params)
+        rows = await db.database.fetch_all(query=query, values=params)
         fuzzy_logger.debug(f"Found {len(rows)} soundex matches")
         
         return [dict(row) for row in rows]
@@ -193,20 +193,20 @@ class FuzzySearchEngine:
         for field in fields:
             # Trigram similarity for both original and standardized queries
             similarity_expressions.extend([
-                f"similarity({field}, $1)",
-                f"similarity({field}, $2)"
+                f"similarity({field}, :search_query)",
+                f"similarity({field}, :standardized_query)"
             ])
             
             # Trigram matching conditions
             trigram_conditions.extend([
-                f"{field} % $1",
-                f"{field} % $2"
+                f"{field} % :search_query",
+                f"{field} % :standardized_query"
             ])
             
             # Soundex conditions
             soundex_conditions.extend([
-                f"soundex({field}) = soundex($1)",
-                f"soundex({field}) = soundex($2)"
+                f"soundex({field}) = soundex(:search_query)",
+                f"soundex({field}) = soundex(:standardized_query)"
             ])
         
         # Build the GREATEST expression for similarity scoring
@@ -234,22 +234,33 @@ class FuzzySearchEngine:
         # Select fields
         select_fields = "*" if not return_fields else ", ".join(return_fields)
         
-        # Prepare parameters
-        params = [search_query, standardized_query, config.min_similarity, config.limit]
+        # Prepare parameters as dictionary
+        params = {
+            "search_query": search_query,
+            "standardized_query": standardized_query,
+            "min_similarity": config.min_similarity,
+            "limit": config.limit
+        }
+        
+        # Add additional parameters if provided
         if additional_params:
-            params.extend(additional_params)
+            if isinstance(additional_params, dict):
+                params.update(additional_params)
+            elif isinstance(additional_params, list):
+                for i, param in enumerate(additional_params):
+                    params[f"param_{i}"] = param
         
         query = f"""
             SELECT {select_fields}, {similarity_score_expr}
             FROM {table_name}
             WHERE {where_conditions}
-            HAVING GREATEST({', '.join(similarity_expressions)}) >= $3
-                OR ({' OR '.join(soundex_conditions)})
+                AND (GREATEST({', '.join(similarity_expressions)}) >= :min_similarity
+                     OR ({' OR '.join(soundex_conditions)}))
             ORDER BY similarity_score DESC, {fields[0]}
-            LIMIT $4
+            LIMIT :limit
         """
         
-        rows = await database.fetch_all(query=query, values=params)
+        rows = await db.database.fetch_all(query=query, values=params)
         fuzzy_logger.debug(f"Found {len(rows)} combined fuzzy matches")
         
         return [dict(row) for row in rows]
@@ -342,7 +353,7 @@ class AddressFuzzySearch:
             LIMIT $5
         """
         
-        rows = await database.fetch_all(query=query, values=[
+        rows = await db.database.fetch_all(query=query, values=[
             search_query, 
             standardized_query, 
             self.config.min_similarity,
@@ -391,7 +402,7 @@ class AddressFuzzySearch:
         
         # Test exact search
         start = time.time()
-        exact_count = await database.fetch_val("""
+        exact_count = await db.database.fetch_val("""
             SELECT COUNT(*) FROM addresses 
             WHERE street_name ILIKE $1 OR street_address ILIKE $1
         """, f"%{search_query}%")
@@ -402,7 +413,7 @@ class AddressFuzzySearch:
         
         # Test trigram search  
         start = time.time()
-        fuzzy_count = await database.fetch_val("""
+        fuzzy_count = await db.database.fetch_val("""
             SELECT COUNT(*) FROM addresses 
             WHERE street_name % $1 OR street_address % $1
         """, search_query)
@@ -413,7 +424,7 @@ class AddressFuzzySearch:
         
         # Test similarity search
         start = time.time()
-        similarity_count = await database.fetch_val("""
+        similarity_count = await db.database.fetch_val("""
             SELECT COUNT(*) FROM addresses 
             WHERE similarity(street_name, $1) > $2
         """, search_query, self.config.min_similarity)
@@ -456,7 +467,7 @@ async def autocomplete_addresses(search_query: str, limit: int = 10, use_fuzzy: 
             LIMIT $5
         """
         
-        rows = await database.fetch_all(query=query, values=[
+        rows = await db.database.fetch_all(query=query, values=[
             f"{search_query}%",
             f"{standardized_query}%", 
             f"%{search_query}%",
