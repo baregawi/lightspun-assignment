@@ -2,6 +2,8 @@
 
 A full-stack web application providing a comprehensive API for US states, municipalities, and addresses with fuzzy search capabilities and a React frontend interface.
 
+NOTE: In order to reduce the amount of data this API only works for CA, NY and TX. And only for 20 municipalities in each of those 3 states. And for 100 addresses for each of those municipalities.
+
 ## 🏗️ Architecture Overview
 
 - **Backend**: FastAPI with PostgreSQL database
