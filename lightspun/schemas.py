@@ -61,7 +61,10 @@ class MunicipalityWithState(Municipality):
 
 class AddressBase(BaseModel):
     """Base schema for Address"""
-    street_address: str = Field(..., min_length=1, max_length=200, description="Street address")
+    street_number: Optional[str] = Field(None, max_length=10, description="Street number (e.g., '123', '456A')")
+    street_name: str = Field(..., min_length=1, max_length=150, description="Street name (e.g., 'Main Street')")
+    unit: Optional[str] = Field(None, max_length=20, description="Unit/apartment/suite (e.g., 'Apt 2B')")
+    street_address: str = Field(..., min_length=1, max_length=200, description="Complete street address (backward compatibility)")
     city: str = Field(..., min_length=1, max_length=100, description="City name")
     state_code: str = Field(..., min_length=2, max_length=2, description="Two-letter state code")
 
@@ -74,11 +77,24 @@ class AddressCreate(AddressBase):
     """Schema for creating a new address"""
     pass
 
+class AddressCreateMinimal(BaseModel):
+    """Schema for creating address with automatic component parsing"""
+    street_address: str = Field(..., min_length=1, max_length=200, description="Complete street address")
+    city: str = Field(..., min_length=1, max_length=100, description="City name")
+    state_code: str = Field(..., min_length=2, max_length=2, description="Two-letter state code")
+
+    @validator('state_code')
+    def validate_state_code(cls, v):
+        return v.upper()
+
 class AddressUpdate(BaseModel):
     """Schema for updating an address"""
-    street_address: Optional[str] = Field(None, min_length=1, max_length=200)
-    city: Optional[str] = Field(None, min_length=1, max_length=100)
-    state_code: Optional[str] = Field(None, min_length=2, max_length=2)
+    street_number: Optional[str] = Field(None, max_length=10, description="Street number")
+    street_name: Optional[str] = Field(None, min_length=1, max_length=150, description="Street name")
+    unit: Optional[str] = Field(None, max_length=20, description="Unit/apartment/suite")
+    street_address: Optional[str] = Field(None, min_length=1, max_length=200, description="Complete street address")
+    city: Optional[str] = Field(None, min_length=1, max_length=100, description="City name")
+    state_code: Optional[str] = Field(None, min_length=2, max_length=2, description="Two-letter state code")
 
     @validator('state_code')
     def validate_state_code(cls, v):

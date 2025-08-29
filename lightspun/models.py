@@ -31,7 +31,10 @@ class Address(Base):
     __tablename__ = "addresses"
     
     id = Column(Integer, primary_key=True, index=True)
-    street_address = Column(String(200), nullable=False)
+    street_number = Column(String(10), nullable=True)  # e.g., "123", "456A"
+    street_name = Column(String(150), nullable=False)  # e.g., "Main Street", "Oak Avenue"
+    unit = Column(String(20), nullable=True)  # e.g., "Apt 2B", "Suite 100"
+    street_address = Column(String(200), nullable=False)  # Keep for backward compatibility
     city = Column(String(100), nullable=False, index=True)  # Index for city searches
     state_code = Column(String(2), nullable=False, index=True)  # Index for state code searches
     full_address = Column(String(300), unique=True, nullable=False)
@@ -41,4 +44,6 @@ class Address(Base):
         Index('ix_addresses_state_code', 'state_code'),  # Explicit index for state code lookups  
         Index('ix_addresses_city_state', 'city', 'state_code'),  # Composite index for city+state searches
         Index('ix_addresses_street_address', 'street_address'),  # Index for address autocomplete
+        Index('ix_addresses_street_name', 'street_name'),  # Index for street name searches
+        Index('ix_addresses_street_number', 'street_number'),  # Index for street number searches
     )

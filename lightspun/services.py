@@ -1,9 +1,10 @@
+import re
 from typing import List, Optional
 from .database import database
 from .schemas import (
     State, StateCreate, StateUpdate,
     Municipality, MunicipalityCreate, MunicipalityUpdate,
-    Address, AddressCreate, AddressUpdate
+    Address, AddressCreate, AddressUpdate, AddressCreateMinimal
 )
 from .logging_config import get_logger
 
@@ -11,6 +12,45 @@ from .logging_config import get_logger
 state_logger = get_logger('lightspun.services.state')
 municipality_logger = get_logger('lightspun.services.municipality')
 address_logger = get_logger('lightspun.services.address')
+
+def parse_street_address(street_address: str) -> tuple:
+    """
+    Parse a street address into components (street_number, street_name, unit).
+    
+    Examples:
+    - "123 Main Street" -> ("123", "Main Street", None)
+    - "456A Oak Avenue Apt 2B" -> ("456A", "Oak Avenue", "Apt 2B")
+    - "789 First Street Suite 100" -> ("789", "First Street", "Suite 100")
+    """
+    if not street_address:
+        return (None, street_address or "", None)
+    
+    # Pattern to match: [number] [street name] [optional unit]
+    # Unit patterns: Apt, Suite, Unit, #, etc.
+    unit_pattern = r'\s+(apt|apartment|suite|unit|#|ste|bldg|building)\s*\.?\s*(.+)$'
+    
+    # First, extract unit if present (case insensitive)
+    unit_match = re.search(unit_pattern, street_address, re.IGNORECASE)
+    unit = None
+    base_address = street_address
+    
+    if unit_match:
+        unit = f"{unit_match.group(1).title()} {unit_match.group(2)}"
+        base_address = street_address[:unit_match.start()].strip()
+    
+    # Now extract street number from the remaining address
+    number_pattern = r'^(\d+[A-Za-z]?)\s+(.+)$'
+    number_match = re.match(number_pattern, base_address.strip())
+    
+    if number_match:
+        street_number = number_match.group(1)
+        street_name = number_match.group(2).strip()
+    else:
+        # No number found, treat entire base address as street name
+        street_number = None
+        street_name = base_address.strip()
+    
+    return (street_number, street_name, unit)
 
 class StateService:
     """Service class for state operations"""
@@ -243,7 +283,8 @@ class AddressService:
         
         # This query will use the ix_addresses_city index for fast city lookups
         query = """
-            SELECT id, street_address, city, state_code, full_address
+            SELECT id, street_number, street_name, unit, street_address, 
+                   city, state_code, full_address
             FROM addresses 
             WHERE LOWER(city) = LOWER(:city)
             ORDER BY street_address
@@ -260,7 +301,8 @@ class AddressService:
         
         # This query will use the ix_addresses_state_code index for fast state lookups
         query = """
-            SELECT id, street_address, city, state_code, full_address
+            SELECT id, street_number, street_name, unit, street_address, 
+                   city, state_code, full_address
             FROM addresses 
             WHERE state_code = UPPER(:state_code)
             ORDER BY city, street_address
@@ -284,7 +326,8 @@ class AddressService:
         
         # This query will use the ix_addresses_city_state composite index
         query = """
-            SELECT id, street_address, city, state_code, full_address
+            SELECT id, street_number, street_name, unit, street_address, 
+                   city, state_code, full_address
             FROM addresses 
             WHERE LOWER(city) = LOWER(:city) 
               AND state_code = UPPER(:state_code)
@@ -301,28 +344,81 @@ class AddressService:
     @staticmethod
     async def get_all_addresses() -> List[Address]:
         """Get all addresses"""
-        query = "SELECT id, street_address, city, state_code, full_address FROM addresses ORDER BY full_address"
+        query = """
+            SELECT id, street_number, street_name, unit, street_address, 
+                   city, state_code, full_address 
+            FROM addresses 
+            ORDER BY full_address
+        """
         rows = await database.fetch_all(query=query)
         return [Address.model_validate(dict(row)) for row in rows]
 
     @staticmethod
     async def get_address_by_id(address_id: int) -> Optional[Address]:
         """Get address by ID"""
-        query = "SELECT id, street_address, city, state_code, full_address FROM addresses WHERE id = :id"
+        query = """
+            SELECT id, street_number, street_name, unit, street_address, 
+                   city, state_code, full_address 
+            FROM addresses 
+            WHERE id = :id
+        """
         row = await database.fetch_one(query=query, values={"id": address_id})
         return Address.model_validate(dict(row)) if row else None
 
     @staticmethod
     async def create_address(address_data: AddressCreate) -> Address:
         """Create a new address"""
+        # Parse street address if components are not provided
+        street_number = address_data.street_number
+        street_name = address_data.street_name  
+        unit = address_data.unit
+        
+        # If street components are missing but street_address is provided, parse it
+        if not street_name and address_data.street_address:
+            parsed_number, parsed_name, parsed_unit = parse_street_address(address_data.street_address)
+            street_number = street_number or parsed_number
+            street_name = street_name or parsed_name
+            unit = unit or parsed_unit
+        
         full_address = f"{address_data.street_address}, {address_data.city}, {address_data.state_code}"
+        
         query = """
-            INSERT INTO addresses (street_address, city, state_code, full_address) 
-            VALUES (:street_address, :city, :state_code, :full_address) 
-            RETURNING id, street_address, city, state_code, full_address
+            INSERT INTO addresses (street_number, street_name, unit, street_address, city, state_code, full_address) 
+            VALUES (:street_number, :street_name, :unit, :street_address, :city, :state_code, :full_address) 
+            RETURNING id, street_number, street_name, unit, street_address, city, state_code, full_address
         """
         values = {
-            **address_data.model_dump(),
+            "street_number": street_number,
+            "street_name": street_name,
+            "unit": unit,
+            "street_address": address_data.street_address,
+            "city": address_data.city,
+            "state_code": address_data.state_code,
+            "full_address": full_address
+        }
+        row = await database.fetch_one(query=query, values=values)
+        return Address.model_validate(dict(row))
+    
+    @staticmethod
+    async def create_address_minimal(address_data: AddressCreateMinimal) -> Address:
+        """Create a new address with automatic street address parsing"""
+        # Parse the street address into components
+        street_number, street_name, unit = parse_street_address(address_data.street_address)
+        
+        full_address = f"{address_data.street_address}, {address_data.city}, {address_data.state_code}"
+        
+        query = """
+            INSERT INTO addresses (street_number, street_name, unit, street_address, city, state_code, full_address) 
+            VALUES (:street_number, :street_name, :unit, :street_address, :city, :state_code, :full_address) 
+            RETURNING id, street_number, street_name, unit, street_address, city, state_code, full_address
+        """
+        values = {
+            "street_number": street_number,
+            "street_name": street_name,
+            "unit": unit,
+            "street_address": address_data.street_address,
+            "city": address_data.city,
+            "state_code": address_data.state_code,
             "full_address": full_address
         }
         row = await database.fetch_one(query=query, values=values)
@@ -335,11 +431,23 @@ class AddressService:
         if not update_data:
             return await AddressService.get_address_by_id(address_id)
         
-        # If any address component is updated, regenerate full address
+        # Get current address
         current_address = await AddressService.get_address_by_id(address_id)
         if not current_address:
             return None
         
+        # Handle street address parsing if street_address is updated but components aren't
+        if "street_address" in update_data:
+            street_address = update_data["street_address"]
+            
+            # If individual components weren't provided, parse the new street address
+            if not any(field in update_data for field in ["street_number", "street_name", "unit"]):
+                street_number, street_name, unit = parse_street_address(street_address)
+                update_data["street_number"] = street_number
+                update_data["street_name"] = street_name  
+                update_data["unit"] = unit
+        
+        # If any address component is updated, regenerate full address
         street_address = update_data.get("street_address", current_address.street_address)
         city = update_data.get("city", current_address.city)
         state_code = update_data.get("state_code", current_address.state_code)
@@ -352,11 +460,53 @@ class AddressService:
             UPDATE addresses 
             SET {set_clause} 
             WHERE id = :id 
-            RETURNING id, street_address, city, state_code, full_address
+            RETURNING id, street_number, street_name, unit, street_address, city, state_code, full_address
         """
         values = {**update_data, "id": address_id}
         row = await database.fetch_one(query=query, values=values)
         return Address.model_validate(dict(row)) if row else None
+
+    @staticmethod
+    async def search_addresses_by_street_name(street_name: str, limit: int = 20) -> List[Address]:
+        """Search addresses by street name (optimized with street_name index)"""
+        address_logger.debug(f"Searching addresses on street: {street_name}")
+        
+        # This query will use the ix_addresses_street_name index for street name lookups
+        query = """
+            SELECT id, street_number, street_name, unit, street_address, 
+                   city, state_code, full_address
+            FROM addresses 
+            WHERE LOWER(street_name) LIKE LOWER(:street_name)
+            ORDER BY city, street_number
+            LIMIT :limit
+        """
+        rows = await database.fetch_all(
+            query=query, 
+            values={"street_name": f"%{street_name}%", "limit": limit}
+        )
+        address_logger.debug(f"Found {len(rows)} addresses on {street_name}")
+        return [Address.model_validate(dict(row)) for row in rows]
+    
+    @staticmethod
+    async def search_addresses_by_street_number(street_number: str, limit: int = 20) -> List[Address]:
+        """Search addresses by street number (optimized with street_number index)"""
+        address_logger.debug(f"Searching addresses with number: {street_number}")
+        
+        # This query will use the ix_addresses_street_number index for street number lookups
+        query = """
+            SELECT id, street_number, street_name, unit, street_address, 
+                   city, state_code, full_address
+            FROM addresses 
+            WHERE street_number = :street_number
+            ORDER BY city, street_name
+            LIMIT :limit
+        """
+        rows = await database.fetch_all(
+            query=query, 
+            values={"street_number": street_number, "limit": limit}
+        )
+        address_logger.debug(f"Found {len(rows)} addresses with number {street_number}")
+        return [Address.model_validate(dict(row)) for row in rows]
 
     @staticmethod
     async def delete_address(address_id: int) -> bool:
