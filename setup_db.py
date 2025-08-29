@@ -12,14 +12,18 @@ Usage:
 import asyncio
 import sys
 import os
-from lightspun.init_db import init_database
+from lightspun.config import get_config
+from lightspun.init_db import init_database_with_data
 
 async def main():
     print("🚀 Setting up Lightspun database...")
-    print(f"📊 Database URL: {os.getenv('DATABASE_URL', 'postgresql://user:password@localhost:5432/lightspun_db')}")
+    
+    # Load configuration
+    config = get_config()
+    print(f"📊 Database URL: {config.get_database_url(hide_password=True)}")
     
     try:
-        await init_database()
+        await init_database_with_data()
         print("✅ Database setup completed successfully!")
     except Exception as e:
         print(f"❌ Database setup failed: {e}")

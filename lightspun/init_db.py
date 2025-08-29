@@ -1,11 +1,12 @@
 import asyncio
-from sqlalchemy import create_engine
-from .database import DATABASE_URL, Base, database
+from .config import get_config
+from .database import init_database, Base, engine, database
 from .models import State, Municipality, Address
 
 async def create_tables():
     """Create all database tables"""
-    engine = create_engine(DATABASE_URL)
+    if engine is None:
+        raise RuntimeError("Database engine not initialized")
     Base.metadata.create_all(bind=engine)
     print("✅ Database tables created")
 
@@ -167,10 +168,14 @@ async def populate_sample_data():
     await database.disconnect()
     print("✅ Sample data populated")
 
-async def init_database():
+async def init_database_with_data():
     """Initialize database with tables and sample data"""
+    # Load configuration and initialize database
+    config = get_config()
+    init_database(config)
+    
     await create_tables()
     await populate_sample_data()
 
 if __name__ == "__main__":
-    asyncio.run(init_database())
+    asyncio.run(init_database_with_data())

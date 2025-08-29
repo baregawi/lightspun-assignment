@@ -5,6 +5,12 @@ from .schemas import (
     Municipality, MunicipalityCreate, MunicipalityUpdate,
     Address, AddressCreate, AddressUpdate
 )
+from .logging_config import get_logger
+
+# Initialize loggers for each service
+state_logger = get_logger('lightspun.services.state')
+municipality_logger = get_logger('lightspun.services.municipality')
+address_logger = get_logger('lightspun.services.address')
 
 class StateService:
     """Service class for state operations"""
@@ -12,16 +18,24 @@ class StateService:
     @staticmethod
     async def get_all_states() -> List[State]:
         """Get all states"""
+        state_logger.debug("Fetching all states from database")
         query = "SELECT id, code, name FROM states ORDER BY name"
         rows = await database.fetch_all(query=query)
+        state_logger.debug(f"Retrieved {len(rows)} states from database")
         return [State.model_validate(dict(row)) for row in rows]
 
     @staticmethod
     async def get_state_by_code(state_code: str) -> Optional[State]:
         """Get state by code"""
+        state_logger.debug(f"Fetching state by code: {state_code}")
         query = "SELECT id, code, name FROM states WHERE code = :code"
         row = await database.fetch_one(query=query, values={"code": state_code.upper()})
-        return State.model_validate(dict(row)) if row else None
+        if row:
+            state_logger.debug(f"Found state: {row['name']} ({row['code']})")
+            return State.model_validate(dict(row))
+        else:
+            state_logger.warning(f"State not found for code: {state_code}")
+            return None
 
     @staticmethod
     async def get_state_by_id(state_id: int) -> Optional[State]:

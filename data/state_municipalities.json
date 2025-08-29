@@ -1,0 +1,151 @@
+{
+  "state_municipalities": {
+    "CA": {
+      "state_name": "California",
+      "municipalities": [
+        {"name": "Los Angeles", "type": "city"},
+        {"name": "San Diego", "type": "city"},
+        {"name": "San Jose", "type": "city"},
+        {"name": "San Francisco", "type": "city"},
+        {"name": "Fresno", "type": "city"},
+        {"name": "Sacramento", "type": "city"},
+        {"name": "Long Beach", "type": "city"},
+        {"name": "Oakland", "type": "city"},
+        {"name": "Bakersfield", "type": "city"},
+        {"name": "Anaheim", "type": "city"},
+        {"name": "Santa Ana", "type": "city"},
+        {"name": "Riverside", "type": "city"},
+        {"name": "Stockton", "type": "city"},
+        {"name": "Irvine", "type": "city"},
+        {"name": "Fremont", "type": "city"},
+        {"name": "San Bernardino", "type": "city"},
+        {"name": "Modesto", "type": "city"},
+        {"name": "Fontana", "type": "city"},
+        {"name": "Oxnard", "type": "city"},
+        {"name": "Moreno Valley", "type": "city"}
+      ]
+    },
+    "NY": {
+      "state_name": "New York", 
+      "municipalities": [
+        {"name": "New York City", "type": "city"},
+        {"name": "Buffalo", "type": "city"},
+        {"name": "Rochester", "type": "city"},
+        {"name": "Yonkers", "type": "city"},
+        {"name": "Syracuse", "type": "city"},
+        {"name": "Albany", "type": "city"},
+        {"name": "New Rochelle", "type": "city"},
+        {"name": "Mount Vernon", "type": "city"},
+        {"name": "Schenectady", "type": "city"},
+        {"name": "Utica", "type": "city"},
+        {"name": "White Plains", "type": "city"},
+        {"name": "Hempstead", "type": "town"},
+        {"name": "Troy", "type": "city"},
+        {"name": "Niagara Falls", "type": "city"},
+        {"name": "Binghamton", "type": "city"},
+        {"name": "Freeport", "type": "village"},
+        {"name": "Valley Stream", "type": "village"},
+        {"name": "Long Beach", "type": "city"},
+        {"name": "Rome", "type": "city"},
+        {"name": "Jamestown", "type": "city"}
+      ]
+    },
+    "TX": {
+      "state_name": "Texas",
+      "municipalities": [
+        {"name": "Houston", "type": "city"},
+        {"name": "San Antonio", "type": "city"},
+        {"name": "Dallas", "type": "city"},
+        {"name": "Austin", "type": "city"},
+        {"name": "Fort Worth", "type": "city"},
+        {"name": "El Paso", "type": "city"},
+        {"name": "Arlington", "type": "city"},
+        {"name": "Corpus Christi", "type": "city"},
+        {"name": "Plano", "type": "city"},
+        {"name": "Laredo", "type": "city"},
+        {"name": "Lubbock", "type": "city"},
+        {"name": "Garland", "type": "city"},
+        {"name": "Irving", "type": "city"},
+        {"name": "Amarillo", "type": "city"},
+        {"name": "Grand Prairie", "type": "city"},
+        {"name": "Brownsville", "type": "city"},
+        {"name": "McKinney", "type": "city"},
+        {"name": "Frisco", "type": "city"},
+        {"name": "Pasadena", "type": "city"},
+        {"name": "Killeen", "type": "city"}
+      ]
+    },
+    "FL": {
+      "state_name": "Florida",
+      "municipalities": [
+        {"name": "Jacksonville", "type": "city"},
+        {"name": "Miami", "type": "city"},
+        {"name": "Tampa", "type": "city"},
+        {"name": "Orlando", "type": "city"},
+        {"name": "St. Petersburg", "type": "city"}
+      ]
+    },
+    "IL": {
+      "state_name": "Illinois", 
+      "municipalities": [
+        {"name": "Chicago", "type": "city"},
+        {"name": "Aurora", "type": "city"},
+        {"name": "Rockford", "type": "city"},
+        {"name": "Joliet", "type": "city"},
+        {"name": "Naperville", "type": "city"}
+      ]
+    },
+    "PA": {
+      "state_name": "Pennsylvania",
+      "municipalities": [
+        {"name": "Philadelphia", "type": "city"},
+        {"name": "Pittsburgh", "type": "city"},
+        {"name": "Allentown", "type": "city"},
+        {"name": "Erie", "type": "city"},
+        {"name": "Reading", "type": "city"}
+      ]
+    },
+    "OH": {
+      "state_name": "Ohio",
+      "municipalities": [
+        {"name": "Columbus", "type": "city"},
+        {"name": "Cleveland", "type": "city"},
+        {"name": "Cincinnati", "type": "city"},
+        {"name": "Toledo", "type": "city"},
+        {"name": "Akron", "type": "city"}
+      ]
+    },
+    "GA": {
+      "state_name": "Georgia",
+      "municipalities": [
+        {"name": "Atlanta", "type": "city"},
+        {"name": "Augusta", "type": "city"},
+        {"name": "Columbus", "type": "city"},
+        {"name": "Macon", "type": "city"},
+        {"name": "Savannah", "type": "city"}
+      ]
+    },
+    "NC": {
+      "state_name": "North Carolina",
+      "municipalities": [
+        {"name": "Charlotte", "type": "city"},
+        {"name": "Raleigh", "type": "city"},
+        {"name": "Greensboro", "type": "city"},
+        {"name": "Durham", "type": "city"},
+        {"name": "Winston-Salem", "type": "city"}
+      ]
+    },
+    "MI": {
+      "state_name": "Michigan",
+      "municipalities": [
+        {"name": "Detroit", "type": "city"},
+        {"name": "Grand Rapids", "type": "city"},
+        {"name": "Warren", "type": "city"},
+        {"name": "Sterling Heights", "type": "city"},
+        {"name": "Lansing", "type": "city"}
+      ]
+    }
+  },
+  "sample_states": ["CA", "NY", "TX"],
+  "total_sample_municipalities": 60
+}

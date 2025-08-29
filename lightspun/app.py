@@ -1,6 +1,11 @@
-from fastapi import FastAPI, HTTPException, Query, Path, Body, status
+from fastapi import FastAPI, HTTPException, Query, Path, Body, status, Request
+from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware
 from typing import List, Dict
-from .database import database, connect_db, disconnect_db
+import time
+import uuid
+from .config import get_config
+from .database import init_database, connect_db, disconnect_db
 from .schemas import (
     State, StateCreate, StateUpdate, StateListResponse,
     Municipality, MunicipalityCreate, MunicipalityUpdate, MunicipalityListResponse,
@@ -8,16 +13,98 @@ from .schemas import (
     ErrorResponse, SuccessResponse
 )
 from .services import StateService, MunicipalityService, AddressService
+from .logging_config import get_logger, set_request_id
 
-app = FastAPI(title="US States and Addresses API", version="1.0.0")
+# Load configuration (logging setup is automatic)
+config = get_config()
+
+# Initialize database with configuration
+init_database(config)
+
+# Initialize logger
+logger = get_logger('lightspun.app')
+
+# Request logging middleware
+class RequestLoggingMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        # Generate request ID and set in context
+        request_id = str(uuid.uuid4())[:8]
+        set_request_id(request_id)
+        
+        # Log request start
+        start_time = time.time()
+        logger.info(
+            f"Request started - {request.method} {request.url.path}",
+            extra={
+                'request_id': request_id,
+                'method': request.method,
+                'path': request.url.path,
+                'query_params': str(request.query_params),
+                'client_ip': request.client.host if request.client else 'unknown'
+            }
+        )
+        
+        try:
+            response = await call_next(request)
+            duration = (time.time() - start_time) * 1000
+            
+            # Log successful response
+            logger.info(
+                f"Request completed - {response.status_code}",
+                extra={
+                    'request_id': request_id,
+                    'status_code': response.status_code,
+                    'duration': duration
+                }
+            )
+            return response
+            
+        except Exception as e:
+            duration = (time.time() - start_time) * 1000
+            logger.error(
+                f"Request failed - {str(e)}",
+                extra={
+                    'request_id': request_id,
+                    'duration': duration,
+                    'error': str(e)
+                },
+                exc_info=True
+            )
+            raise
+
+app = FastAPI(
+    title=config.api.title,
+    description=config.api.description,
+    version=config.api.version,
+    docs_url=config.api.docs_url,
+    redoc_url=config.api.redoc_url,
+    openapi_url=config.api.openapi_url,
+    debug=config.api.debug
+)
+
+# Add CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=config.security.cors_origins,
+    allow_credentials=config.security.cors_allow_credentials,
+    allow_methods=config.security.cors_allow_methods,
+    allow_headers=config.security.cors_allow_headers,
+)
+
+# Add request logging middleware
+app.add_middleware(RequestLoggingMiddleware)
 
 @app.on_event("startup")
 async def startup():
+    logger.info("Starting up FastAPI application...")
     await connect_db()
+    logger.info("FastAPI application startup completed")
 
 @app.on_event("shutdown")
 async def shutdown():
+    logger.info("Shutting down FastAPI application...")
     await disconnect_db()
+    logger.info("FastAPI application shutdown completed")
 
 @app.get("/", tags=["Root"])
 async def root() -> SuccessResponse:
@@ -34,7 +121,9 @@ async def root() -> SuccessResponse:
          description="Retrieve all US states with their codes and names")
 async def get_all_states():
     """Get all US states with their codes and names."""
+    logger.debug("Retrieving all states")
     states = await StateService.get_all_states()
+    logger.debug(f"Retrieved {len(states)} states")
     return StateListResponse(states=states, total_count=len(states))
 
 

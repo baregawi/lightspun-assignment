@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, ForeignKey, Table
+from sqlalchemy import Column, Integer, String, ForeignKey, Table, UniqueConstraint
 from sqlalchemy.orm import relationship
 from .database import Base
 
@@ -20,6 +20,10 @@ class Municipality(Base):
     state_id = Column(Integer, ForeignKey("states.id"))
     
     state = relationship("State", back_populates="municipalities")
+    
+    __table_args__ = (
+        UniqueConstraint('name', 'state_id', name='uq_municipality_name_state'),
+    )
 
 class Address(Base):
     __tablename__ = "addresses"
@@ -28,4 +32,4 @@ class Address(Base):
     street_address = Column(String(200), nullable=False)
     city = Column(String(100), nullable=False)
     state_code = Column(String(2), nullable=False)
-    full_address = Column(String(300), nullable=False)
+    full_address = Column(String(300), unique=True, nullable=False)
