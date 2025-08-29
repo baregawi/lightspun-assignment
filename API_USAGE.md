@@ -2,14 +2,71 @@
 
 ## Setup and Run
 
-1. Install dependencies:
+### Prerequisites
+- Python 3.7+
+- PostgreSQL 12+ (or use Docker Compose)
+
+### 1. Install dependencies:
 ```bash
 pip install -r requirements.txt
 ```
 
-2. Start the server:
+### 2. Setup PostgreSQL Database
+
+#### Option A: Using Docker Compose (Recommended)
 ```bash
-uvicorn main:app --host 0.0.0.0 --port 8000
+docker-compose up -d postgres
+```
+
+#### Option B: Local PostgreSQL Installation
+Make sure PostgreSQL is running and create a database named `lightspun_db`.
+
+### 3. Configure Database Connection
+Copy the environment configuration:
+```bash
+cp .env.example .env
+```
+
+Edit `.env` if needed to match your PostgreSQL setup:
+```
+DATABASE_URL=postgresql://user:password@localhost:5432/lightspun_db
+```
+
+### 4. Initialize Database
+Run the database setup script:
+```bash
+python setup_db.py
+```
+
+### 5. Start the server:
+
+#### Option A: Using Docker Compose (Recommended)
+```bash
+docker-compose up -d
+```
+This will start both PostgreSQL and the FastAPI application in containers.
+
+#### Option B: Local Development
+```bash
+uvicorn lightspun.app:app --host 0.0.0.0 --port 8000
+# or
+python main.py
+```
+
+### Docker Commands
+```bash
+# Build and start all services
+docker-compose up -d
+
+# View logs
+docker-compose logs api
+docker-compose logs postgres
+
+# Stop all services
+docker-compose down
+
+# Rebuild containers
+docker-compose build --no-cache
 ```
 
 ## API Endpoints

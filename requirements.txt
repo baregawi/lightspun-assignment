@@ -2,3 +2,7 @@ fastapi==0.104.1
 uvicorn[standard]==0.24.0
 requests==2.31.0
 pydantic==2.5.0
+sqlalchemy==1.4.50
+asyncpg==0.29.0
+psycopg2-binary==2.9.9
+databases==0.8.0

@@ -1,85 +1,288 @@
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Path, Body, status
 from typing import List, Dict
+from .database import database, connect_db, disconnect_db
+from .schemas import (
+    State, StateCreate, StateUpdate, StateListResponse,
+    Municipality, MunicipalityCreate, MunicipalityUpdate, MunicipalityListResponse,
+    Address, AddressCreate, AddressUpdate, AddressAutocompleteQuery, AddressAutocompleteResponse,
+    ErrorResponse, SuccessResponse
+)
+from .services import StateService, MunicipalityService, AddressService
 
 app = FastAPI(title="US States and Addresses API", version="1.0.0")
 
-US_STATES = [
-    {"code": "CA", "name": "California"},
-    {"code": "NY", "name": "New York"},
-    {"code": "TX", "name": "Texas"},
-]
+@app.on_event("startup")
+async def startup():
+    await connect_db()
 
-SAMPLE_MUNICIPALITIES = {
-    "CA": [
-        {"name": "Los Angeles", "type": "city"},
-        {"name": "San Francisco", "type": "city"},
-        {"name": "San Diego", "type": "city"},
-        {"name": "Sacramento", "type": "city"},
-        {"name": "Oakland", "type": "city"}
-    ],
-    "NY": [
-        {"name": "New York City", "type": "city"},
-        {"name": "Buffalo", "type": "city"},
-        {"name": "Rochester", "type": "city"},
-        {"name": "Yonkers", "type": "city"},
-        {"name": "Syracuse", "type": "city"}
-    ],
-    "TX": [
-        {"name": "Houston", "type": "city"},
-        {"name": "San Antonio", "type": "city"},
-        {"name": "Dallas", "type": "city"},
-        {"name": "Austin", "type": "city"},
-        {"name": "Fort Worth", "type": "city"}
-    ]
-}
-
-SAMPLE_ADDRESSES = [
-    "123 Main Street, Los Angeles, CA",
-    "456 Oak Avenue, San Francisco, CA",
-    "789 Pine Road, San Diego, CA",
-    "321 Elm Street, New York, NY",
-    "654 Broadway, Buffalo, NY",
-    "987 Cedar Lane, Houston, TX",
-    "147 Maple Drive, Dallas, TX",
-    "258 Birch Way, Austin, TX"
-]
+@app.on_event("shutdown")
+async def shutdown():
+    await disconnect_db()
 
 @app.get("/", tags=["Root"])
-async def root():
-    return {"message": "US States and Addresses API"}
+async def root() -> SuccessResponse:
+    """API root endpoint"""
+    return SuccessResponse(message="US States and Addresses API")
 
 
-@app.get("/states", tags=["States"])
-async def get_all_states() -> List[Dict[str, str]]:
+# ===== STATE ENDPOINTS =====
+
+@app.get("/states", 
+         response_model=StateListResponse,
+         tags=["States"],
+         summary="Get all US states",
+         description="Retrieve all US states with their codes and names")
+async def get_all_states():
     """Get all US states with their codes and names."""
-    return US_STATES
+    states = await StateService.get_all_states()
+    return StateListResponse(states=states, total_count=len(states))
 
 
-@app.get("/states/{state_code}/municipalities", tags=["Municipalities"])
-async def get_municipalities_in_state(state_code: str) -> List[Dict[str, str]]:
+@app.get("/states/{state_code}",
+         response_model=State,
+         responses={404: {"model": ErrorResponse}},
+         tags=["States"],
+         summary="Get state by code",
+         description="Retrieve a specific state by its two-letter code")
+async def get_state_by_code(
+    state_code: str = Path(..., description="Two-letter state code", min_length=2, max_length=2)
+):
+    """Get a specific state by its code."""
+    state = await StateService.get_state_by_code(state_code)
+    if not state:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"State with code '{state_code.upper()}' not found"
+        )
+    return state
+
+
+@app.post("/states",
+          response_model=State,
+          status_code=status.HTTP_201_CREATED,
+          responses={400: {"model": ErrorResponse}},
+          tags=["States"],
+          summary="Create a new state",
+          description="Create a new state with code and name")
+async def create_state(state_data: StateCreate):
+    """Create a new state."""
+    try:
+        state = await StateService.create_state(state_data)
+        return state
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Failed to create state: {str(e)}"
+        )
+
+
+@app.put("/states/{state_id}",
+         response_model=State,
+         responses={404: {"model": ErrorResponse}},
+         tags=["States"],
+         summary="Update a state",
+         description="Update an existing state")
+async def update_state(
+    state_id: int = Path(..., description="State ID"),
+    state_data: StateUpdate = Body(...)
+):
+    """Update an existing state."""
+    state = await StateService.update_state(state_id, state_data)
+    if not state:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"State with ID {state_id} not found"
+        )
+    return state
+
+
+@app.delete("/states/{state_id}",
+            response_model=SuccessResponse,
+            responses={404: {"model": ErrorResponse}},
+            tags=["States"],
+            summary="Delete a state",
+            description="Delete an existing state")
+async def delete_state(state_id: int = Path(..., description="State ID")):
+    """Delete an existing state."""
+    deleted = await StateService.delete_state(state_id)
+    if not deleted:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"State with ID {state_id} not found"
+        )
+    return SuccessResponse(message=f"State with ID {state_id} deleted successfully")
+
+
+# ===== MUNICIPALITY ENDPOINTS =====
+
+@app.get("/states/{state_code}/municipalities",
+         response_model=MunicipalityListResponse,
+         responses={404: {"model": ErrorResponse}},
+         tags=["Municipalities"],
+         summary="Get municipalities in state",
+         description="Retrieve all municipalities in a specific state")
+async def get_municipalities_in_state(
+    state_code: str = Path(..., description="Two-letter state code", min_length=2, max_length=2)
+):
     """Get municipalities (cities, towns) in a specific state."""
     state_code = state_code.upper()
     
-    if not any(state["code"] == state_code for state in US_STATES):
-        raise HTTPException(status_code=404, detail="State not found")
+    # Check if state exists
+    state = await StateService.get_state_by_code(state_code)
+    if not state:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"State with code '{state_code}' not found"
+        )
     
-    municipalities = SAMPLE_MUNICIPALITIES.get(state_code, [])
-    if not municipalities:
-        return [{"message": f"No municipalities data available for {state_code}"}]
+    # Get municipalities for the state
+    municipalities = await MunicipalityService.get_municipalities_by_state_code(state_code)
     
-    return municipalities
+    return MunicipalityListResponse(
+        municipalities=municipalities,
+        state=state,
+        total_count=len(municipalities)
+    )
 
 
-@app.get("/addresses/autocomplete", tags=["Addresses"])
-async def autocomplete_address(q: str = Query(..., description="Address query string")) -> List[str]:
+@app.get("/municipalities/{municipality_id}",
+         response_model=Municipality,
+         responses={404: {"model": ErrorResponse}},
+         tags=["Municipalities"],
+         summary="Get municipality by ID",
+         description="Retrieve a specific municipality by its ID")
+async def get_municipality_by_id(
+    municipality_id: int = Path(..., description="Municipality ID")
+):
+    """Get a specific municipality by its ID."""
+    municipality = await MunicipalityService.get_municipality_by_id(municipality_id)
+    if not municipality:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Municipality with ID {municipality_id} not found"
+        )
+    return municipality
+
+
+@app.post("/municipalities",
+          response_model=Municipality,
+          status_code=status.HTTP_201_CREATED,
+          responses={400: {"model": ErrorResponse}},
+          tags=["Municipalities"],
+          summary="Create a new municipality",
+          description="Create a new municipality")
+async def create_municipality(municipality_data: MunicipalityCreate):
+    """Create a new municipality."""
+    try:
+        municipality = await MunicipalityService.create_municipality(municipality_data)
+        return municipality
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Failed to create municipality: {str(e)}"
+        )
+
+
+# ===== ADDRESS ENDPOINTS =====
+
+@app.get("/addresses/autocomplete",
+         response_model=AddressAutocompleteResponse,
+         tags=["Addresses"],
+         summary="Autocomplete street addresses",
+         description="Search and autocomplete street addresses based on query string")
+async def autocomplete_address(
+    q: str = Query(..., description="Address query string", min_length=2),
+    limit: int = Query(10, description="Maximum number of results", ge=1, le=50)
+):
     """Autocomplete street addresses based on query string."""
-    if not q or len(q) < 2:
-        raise HTTPException(status_code=400, detail="Query must be at least 2 characters long")
+    addresses = await AddressService.search_addresses(q, limit)
     
-    query_lower = q.lower()
-    matching_addresses = [
-        addr for addr in SAMPLE_ADDRESSES 
-        if query_lower in addr.lower()
-    ]
-    
-    return matching_addresses[:10]
+    return AddressAutocompleteResponse(
+        addresses=addresses,
+        total_count=len(addresses)
+    )
+
+
+@app.get("/addresses",
+         response_model=List[Address],
+         tags=["Addresses"],
+         summary="Get all addresses",
+         description="Retrieve all addresses")
+async def get_all_addresses():
+    """Get all addresses."""
+    return await AddressService.get_all_addresses()
+
+
+@app.get("/addresses/{address_id}",
+         response_model=Address,
+         responses={404: {"model": ErrorResponse}},
+         tags=["Addresses"],
+         summary="Get address by ID",
+         description="Retrieve a specific address by its ID")
+async def get_address_by_id(
+    address_id: int = Path(..., description="Address ID")
+):
+    """Get a specific address by its ID."""
+    address = await AddressService.get_address_by_id(address_id)
+    if not address:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Address with ID {address_id} not found"
+        )
+    return address
+
+
+@app.post("/addresses",
+          response_model=Address,
+          status_code=status.HTTP_201_CREATED,
+          responses={400: {"model": ErrorResponse}},
+          tags=["Addresses"],
+          summary="Create a new address",
+          description="Create a new address")
+async def create_address(address_data: AddressCreate):
+    """Create a new address."""
+    try:
+        address = await AddressService.create_address(address_data)
+        return address
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Failed to create address: {str(e)}"
+        )
+
+
+@app.put("/addresses/{address_id}",
+         response_model=Address,
+         responses={404: {"model": ErrorResponse}},
+         tags=["Addresses"],
+         summary="Update an address",
+         description="Update an existing address")
+async def update_address(
+    address_id: int = Path(..., description="Address ID"),
+    address_data: AddressUpdate = Body(...)
+):
+    """Update an existing address."""
+    address = await AddressService.update_address(address_id, address_data)
+    if not address:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Address with ID {address_id} not found"
+        )
+    return address
+
+
+@app.delete("/addresses/{address_id}",
+            response_model=SuccessResponse,
+            responses={404: {"model": ErrorResponse}},
+            tags=["Addresses"],
+            summary="Delete an address",
+            description="Delete an existing address")
+async def delete_address(address_id: int = Path(..., description="Address ID")):
+    """Delete an existing address."""
+    deleted = await AddressService.delete_address(address_id)
+    if not deleted:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Address with ID {address_id} not found"
+        )
+    return SuccessResponse(message=f"Address with ID {address_id} deleted successfully")
