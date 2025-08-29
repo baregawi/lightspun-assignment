@@ -540,6 +540,204 @@ class AddressService:
         return [Address.model_validate(dict(row)) for row in rows]
 
     @staticmethod
+    async def fuzzy_search_addresses(search_query: str, limit: int = 10, min_similarity: float = 0.3) -> List[str]:
+        """
+        Fuzzy search addresses using trigram similarity and soundex matching.
+        
+        Args:
+            search_query: Search term (can contain typos or similar sounds)
+            limit: Maximum number of results
+            min_similarity: Minimum similarity threshold (0.0 to 1.0)
+        
+        Returns:
+            List of matching full addresses with similarity scores
+        """
+        address_logger.debug(f"Fuzzy searching addresses with query: {search_query}, min_similarity: {min_similarity}")
+        
+        # Standardize the search query
+        standardized_query = standardize_street_type(search_query.strip())
+        
+        # Multi-stage fuzzy search query combining trigram similarity and soundex
+        query = """
+            SELECT DISTINCT 
+                full_address,
+                GREATEST(
+                    similarity(street_address, :search_query),
+                    similarity(street_address, :std_query),
+                    similarity(street_name, :search_query),
+                    similarity(street_name, :std_query),
+                    CASE 
+                        WHEN soundex(street_name) = soundex(:search_query) THEN 0.8
+                        ELSE 0.0 
+                    END
+                ) as similarity_score
+            FROM addresses 
+            WHERE 
+                (street_address % :search_query OR street_address % :std_query)
+                OR (street_name % :search_query OR street_name % :std_query)  
+                OR soundex(street_name) = soundex(:search_query)
+                OR soundex(street_name) = soundex(:std_query)
+            HAVING GREATEST(
+                similarity(street_address, :search_query),
+                similarity(street_address, :std_query),
+                similarity(street_name, :search_query),
+                similarity(street_name, :std_query),
+                CASE 
+                    WHEN soundex(street_name) = soundex(:search_query) THEN 0.8
+                    ELSE 0.0 
+                END
+            ) >= :min_similarity
+            ORDER BY similarity_score DESC, full_address
+            LIMIT :limit
+        """
+        
+        rows = await database.fetch_all(
+            query=query, 
+            values={
+                "search_query": search_query,
+                "std_query": standardized_query,
+                "min_similarity": min_similarity,
+                "limit": limit
+            }
+        )
+        
+        address_logger.debug(f"Found {len(rows)} fuzzy matches for '{search_query}' (standardized: '{standardized_query}')")
+        return [row["full_address"] for row in rows]
+
+    @staticmethod
+    async def autocomplete_addresses(search_query: str, limit: int = 10, use_fuzzy: bool = True) -> List[str]:
+        """
+        Enhanced address autocomplete with optional fuzzy search.
+        
+        Args:
+            search_query: Partial address to search for
+            limit: Maximum number of suggestions
+            use_fuzzy: Whether to include fuzzy matching for typos
+            
+        Returns:
+            List of matching address suggestions
+        """
+        address_logger.debug(f"Autocompleting addresses for: {search_query}, fuzzy: {use_fuzzy}")
+        
+        if not search_query or len(search_query.strip()) < 2:
+            return []
+        
+        search_query = search_query.strip()
+        standardized_query = standardize_street_type(search_query)
+        
+        if use_fuzzy:
+            # Use fuzzy search for better results with typos
+            return await AddressService.fuzzy_search_addresses(
+                search_query, limit, min_similarity=0.3
+            )
+        else:
+            # Use traditional exact/prefix matching (faster)
+            query = """
+                SELECT DISTINCT full_address
+                FROM addresses 
+                WHERE street_address ILIKE :prefix_term
+                   OR street_address ILIKE :std_prefix_term
+                   OR LOWER(full_address) LIKE LOWER(:contains_term)
+                   OR LOWER(full_address) LIKE LOWER(:std_contains_term)
+                ORDER BY 
+                    CASE 
+                        WHEN street_address ILIKE :prefix_term THEN 1 
+                        WHEN street_address ILIKE :std_prefix_term THEN 2
+                        ELSE 3 
+                    END,
+                    full_address
+                LIMIT :limit
+            """
+            
+            prefix_term = f"{search_query}%"
+            std_prefix_term = f"{standardized_query}%"
+            contains_term = f"%{search_query}%"
+            std_contains_term = f"%{standardized_query}%"
+            
+            rows = await database.fetch_all(
+                query=query,
+                values={
+                    "prefix_term": prefix_term,
+                    "std_prefix_term": std_prefix_term,
+                    "contains_term": contains_term,
+                    "std_contains_term": std_contains_term,
+                    "limit": limit
+                }
+            )
+            
+            address_logger.debug(f"Found {len(rows)} exact matches for '{search_query}'")
+            return [row["full_address"] for row in rows]
+
+    @staticmethod
+    async def fuzzy_search_street_names(search_query: str, limit: int = 20, min_similarity: float = 0.4) -> List[dict]:
+        """
+        Fuzzy search for street names with similarity scores.
+        
+        Args:
+            search_query: Street name to search for (can have typos)
+            limit: Maximum number of results
+            min_similarity: Minimum similarity threshold
+            
+        Returns:
+            List of dicts with street_name, similarity_score, and count
+        """
+        address_logger.debug(f"Fuzzy searching street names for: {search_query}")
+        
+        standardized_query = standardize_street_type(search_query.strip())
+        
+        query = """
+            SELECT 
+                street_name,
+                COUNT(*) as address_count,
+                GREATEST(
+                    similarity(street_name, :search_query),
+                    similarity(street_name, :std_query),
+                    CASE 
+                        WHEN soundex(street_name) = soundex(:search_query) THEN 0.7
+                        ELSE 0.0 
+                    END
+                ) as similarity_score
+            FROM addresses 
+            WHERE 
+                (street_name % :search_query OR street_name % :std_query)
+                OR soundex(street_name) = soundex(:search_query)
+                OR soundex(street_name) = soundex(:std_query)
+            GROUP BY street_name
+            HAVING GREATEST(
+                similarity(street_name, :search_query),
+                similarity(street_name, :std_query),
+                CASE 
+                    WHEN soundex(street_name) = soundex(:search_query) THEN 0.7
+                    ELSE 0.0 
+                END
+            ) >= :min_similarity
+            ORDER BY similarity_score DESC, address_count DESC, street_name
+            LIMIT :limit
+        """
+        
+        rows = await database.fetch_all(
+            query=query,
+            values={
+                "search_query": search_query,
+                "std_query": standardized_query,
+                "min_similarity": min_similarity,
+                "limit": limit
+            }
+        )
+        
+        results = [
+            {
+                "street_name": row["street_name"],
+                "similarity_score": float(row["similarity_score"]),
+                "address_count": row["address_count"]
+            }
+            for row in rows
+        ]
+        
+        address_logger.debug(f"Found {len(results)} fuzzy street name matches")
+        return results
+
+    @staticmethod
     async def delete_address(address_id: int) -> bool:
         """Delete an address"""
         query = "DELETE FROM addresses WHERE id = :id"
