@@ -7,6 +7,11 @@ from .schemas import (
     Address, AddressCreate, AddressUpdate, AddressCreateMinimal
 )
 from .logging_config import get_logger
+from .street_standardization import (
+    standardize_street_type, 
+    standardize_full_address_components,
+    rebuild_street_address
+)
 
 # Initialize loggers for each service
 state_logger = get_logger('lightspun.services.state')
@@ -15,12 +20,12 @@ address_logger = get_logger('lightspun.services.address')
 
 def parse_street_address(street_address: str) -> tuple:
     """
-    Parse a street address into components (street_number, street_name, unit).
+    Parse a street address into components (street_number, street_name, unit) with standardization.
     
     Examples:
-    - "123 Main Street" -> ("123", "Main Street", None)
-    - "456A Oak Avenue Apt 2B" -> ("456A", "Oak Avenue", "Apt 2B")
-    - "789 First Street Suite 100" -> ("789", "First Street", "Suite 100")
+    - "123 Main St" -> ("123", "Main Street", None)
+    - "456A Oak Ave Apt 2B" -> ("456A", "Oak Avenue", "Apt 2B")
+    - "789 First Blvd Suite 100" -> ("789", "First Boulevard", "Suite 100")
     """
     if not street_address:
         return (None, street_address or "", None)
@@ -49,6 +54,10 @@ def parse_street_address(street_address: str) -> tuple:
         # No number found, treat entire base address as street name
         street_number = None
         street_name = base_address.strip()
+    
+    # Standardize the street name (standardize street type suffixes)
+    if street_name:
+        street_name = standardize_street_type(street_name)
     
     return (street_number, street_name, unit)
 
@@ -248,32 +257,45 @@ class AddressService:
 
     @staticmethod
     async def search_addresses(search_query: str, limit: int = 10) -> List[str]:
-        """Search addresses by query string (optimized with indexes)"""
+        """Search addresses by query string with standardization (optimized with indexes)"""
         address_logger.debug(f"Searching addresses with query: {search_query}")
+        
+        # Standardize the search query for better matching
+        standardized_query = standardize_street_type(search_query.strip())
         
         # Optimized query that can use the street_address index for prefix searches
         query = """
             SELECT full_address 
             FROM addresses 
             WHERE street_address ILIKE :prefix_term
+               OR street_address ILIKE :std_prefix_term
                OR LOWER(full_address) LIKE LOWER(:full_term)
+               OR LOWER(full_address) LIKE LOWER(:std_full_term)
             ORDER BY 
-                CASE WHEN street_address ILIKE :prefix_term THEN 1 ELSE 2 END,
+                CASE 
+                    WHEN street_address ILIKE :prefix_term THEN 1 
+                    WHEN street_address ILIKE :std_prefix_term THEN 2
+                    ELSE 3 
+                END,
                 full_address
             LIMIT :limit
         """
-        prefix_term = f"{search_query}%"  # Prefix search can use index
-        full_term = f"%{search_query}%"   # Fallback for other searches
+        prefix_term = f"{search_query}%"  # Original prefix search
+        std_prefix_term = f"{standardized_query}%"  # Standardized prefix search
+        full_term = f"%{search_query}%"   # Original fallback search
+        std_full_term = f"%{standardized_query}%"   # Standardized fallback search
         
         rows = await database.fetch_all(
             query=query, 
             values={
-                "prefix_term": prefix_term, 
-                "full_term": full_term, 
+                "prefix_term": prefix_term,
+                "std_prefix_term": std_prefix_term,
+                "full_term": full_term,
+                "std_full_term": std_full_term,
                 "limit": limit
             }
         )
-        address_logger.debug(f"Found {len(rows)} matching addresses")
+        address_logger.debug(f"Found {len(rows)} matching addresses for '{search_query}' (standardized: '{standardized_query}')")
         return [row["full_address"] for row in rows]
 
     @staticmethod
@@ -367,7 +389,7 @@ class AddressService:
 
     @staticmethod
     async def create_address(address_data: AddressCreate) -> Address:
-        """Create a new address"""
+        """Create a new address with street type standardization"""
         # Parse street address if components are not provided
         street_number = address_data.street_number
         street_name = address_data.street_name  
@@ -380,7 +402,13 @@ class AddressService:
             street_name = street_name or parsed_name
             unit = unit or parsed_unit
         
-        full_address = f"{address_data.street_address}, {address_data.city}, {address_data.state_code}"
+        # Standardize street type if street_name is provided directly
+        if street_name:
+            street_name = standardize_street_type(street_name)
+        
+        # Rebuild standardized street address
+        standardized_street_address = rebuild_street_address(street_number, street_name, unit)
+        full_address = f"{standardized_street_address}, {address_data.city}, {address_data.state_code}"
         
         query = """
             INSERT INTO addresses (street_number, street_name, unit, street_address, city, state_code, full_address) 
@@ -391,7 +419,7 @@ class AddressService:
             "street_number": street_number,
             "street_name": street_name,
             "unit": unit,
-            "street_address": address_data.street_address,
+            "street_address": standardized_street_address,
             "city": address_data.city,
             "state_code": address_data.state_code,
             "full_address": full_address
@@ -468,8 +496,11 @@ class AddressService:
 
     @staticmethod
     async def search_addresses_by_street_name(street_name: str, limit: int = 20) -> List[Address]:
-        """Search addresses by street name (optimized with street_name index)"""
+        """Search addresses by street name with standardization (optimized with street_name index)"""
         address_logger.debug(f"Searching addresses on street: {street_name}")
+        
+        # Standardize the search term before querying
+        standardized_street_name = standardize_street_type(street_name.strip())
         
         # This query will use the ix_addresses_street_name index for street name lookups
         query = """
@@ -482,9 +513,9 @@ class AddressService:
         """
         rows = await database.fetch_all(
             query=query, 
-            values={"street_name": f"%{street_name}%", "limit": limit}
+            values={"street_name": f"%{standardized_street_name}%", "limit": limit}
         )
-        address_logger.debug(f"Found {len(rows)} addresses on {street_name}")
+        address_logger.debug(f"Found {len(rows)} addresses on {standardized_street_name}")
         return [Address.model_validate(dict(row)) for row in rows]
     
     @staticmethod
